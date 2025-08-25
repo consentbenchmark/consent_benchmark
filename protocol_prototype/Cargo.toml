@@ -1,0 +1,21 @@
+[package]
+name = "protocol_prototype"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+criterion = "0.4"
+rand = "0.8.5"
+curve25519-dalek = {version = "4", features = ["rand_core", "digest"]}
+ed25519-dalek = {version = "2", features = ["rand_core"]}
+rand_core = "0.6"
+hex = "0.4.3"
+sha2 = "0.10"
+
+[[bench]]
+name = "protocol_benchmarks"
+harness = false
+
+[lib]
+name = "protocol_prototype"
+path = "src/lib.rs"
