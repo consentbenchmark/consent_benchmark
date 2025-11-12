@@ -8,4 +8,5 @@ impl IdentityManager {
     pub fn new(public_params: PublicParams) -> Self {
         IdentityManager { public_params }
     }
+
 }
