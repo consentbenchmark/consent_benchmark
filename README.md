@@ -2,7 +2,7 @@
 
 To match the rust version used in measurements, run:
 ```
-rustup default 1.80.0
+rustup default 1.91.0
 ```
 
 To run the benchmarks:
