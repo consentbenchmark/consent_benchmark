@@ -11,6 +11,12 @@ ed25519-dalek = {version = "2", features = ["rand_core"]}
 rand_core = "0.6"
 hex = "0.4.3"
 sha2 = "0.10"
+argon2 = "0.5"
+viadkim = "0.2"
+base64 = "0.21"
+tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
+pkcs8 = { version = "0.10", features = ["pem"] }
+rsa = { version = "0.9", features = ["sha2"] }
 
 [[bench]]
 name = "protocol_benchmarks"
