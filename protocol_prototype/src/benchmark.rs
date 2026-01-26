@@ -5,8 +5,8 @@ use crate::idm::IdentityManager;
 use crate::agent::Agent;
 use ed25519_dalek::{SigningKey, VerifyingKey, Verifier};
 use ed25519_dalek::Signature;
-use crate::utils::{pok_prove, pok_verify};
-use crate::utils::{PublicParams, generate_public_params, commit, hash_to_scalar};
+use crate::utils::{pok_prove, pok_verify, pok_verify_no_idm};
+use crate::utils::{PublicParams, generate_public_params, commit, hash_to_scalar, schnorr_keygen, schnorr_sign, schnorr_verify};
 use rand::rngs::OsRng;
 use std::time::Instant;
 use viadkim::{SigningKey as DkimSigningKey, SigningAlgorithm, DomainName, Selector, SignRequest, HeaderFields};
@@ -201,6 +201,103 @@ pub fn benchmark_perform_action(c: &mut Criterion) {
     c.bench_function("consent verify", |b| {
         b.iter(|| {
             assert!(pok_verify(com_id, com, att.clone(), pi.0, pi.1, pi.2, pi.3, public_params.clone()));
+        })
+    });
+
+    c.bench_function("client_enroll_no_idm", |b| {
+        b.iter(|| {
+            let (_contract, _secret_state) = client.enroll_no_idm();
+        })
+    });
+
+    c.bench_function("client_enroll_no_idm_sha256", |b| {
+        b.iter(|| {
+            let (_contract, _secret_state) = client.enroll_no_idm_sha256();
+        })
+    });
+
+    c.bench_function("client_enroll_no_idm_nohash", |b| {
+        b.iter(|| {
+            let (_contract, _secret_state) = client.enroll_no_idm_nohash();
+        })
+    });
+
+    c.bench_function("client_launch_no_idm", |b| {
+        b.iter(|| {
+            let _sig = client.launch_no_idm(&att);
+        })
+    });
+
+    c.bench_function("client_launch_no_idm_sha256", |b| {
+        b.iter(|| {
+            let _sig = client.launch_no_idm_sha256(&att);
+        })
+    });
+
+    c.bench_function("client_launch_no_idm_nohash", |b| {
+        b.iter(|| {
+            let _sig = client.launch_no_idm_nohash(&att);
+        })
+    });
+
+    let (no_idm_contract, no_idm_secret_state) = client.enroll_no_idm();
+    let no_idm_sig = client.launch_no_idm(&att);
+    let (no_idm_sk, no_idm_pk, no_idm_r_id) = no_idm_secret_state;
+    let (_, no_idm_com_id) = no_idm_contract;
+
+    c.bench_function("agent_verify_no_idm", |b| {
+        b.iter(|| {
+            let _consent = agent.verify_and_prove_no_idm(
+                no_idm_com_id,
+                att.as_bytes(),
+                no_idm_pk,
+                no_idm_r_id,
+                no_idm_sig,
+            );
+        })
+    });
+
+    let consent_no_idm = agent.verify_and_prove_no_idm(
+        no_idm_com_id,
+        att.as_bytes(),
+        no_idm_pk,
+        no_idm_r_id,
+        no_idm_sig,
+    ).unwrap();
+
+    c.bench_function("consent_verify_no_idm", |b| {
+        b.iter(|| {
+            assert!(pok_verify_no_idm(
+                no_idm_com_id,
+                att.as_bytes(),
+                consent_no_idm.0,
+                &consent_no_idm.1,
+                &public_params
+            ));
+        })
+    });
+
+    let test_seed = [0u8; 32];
+    c.bench_function("schnorr_keygen", |b| {
+        b.iter(|| {
+            let (_sk, _pk) = schnorr_keygen(black_box(test_seed));
+        })
+    });
+
+    let (test_sk, test_pk) = schnorr_keygen(test_seed);
+    let test_message = b"test message";
+
+    c.bench_function("schnorr_sign", |b| {
+        b.iter(|| {
+            let _sig = schnorr_sign(black_box(test_sk), black_box(test_message));
+        })
+    });
+
+    let test_sig = schnorr_sign(test_sk, test_message);
+
+    c.bench_function("schnorr_verify", |b| {
+        b.iter(|| {
+            assert!(schnorr_verify(black_box(test_pk), black_box(test_sig), black_box(test_message)));
         })
     });
 

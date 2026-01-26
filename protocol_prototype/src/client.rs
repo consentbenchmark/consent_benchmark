@@ -4,7 +4,7 @@ use hex;
 use sha2::{Digest, Sha256};
 use argon2::{Argon2, Algorithm, Version, Params};
 use rsa::{RsaPublicKey, Oaep};
-use crate::utils::{PublicParams, commit, hash_to_scalar};
+use crate::utils::{PublicParams, commit, hash_to_scalar, schnorr_keygen, schnorr_sign, commit_pk};
 
 pub struct Client {
     login: String,
@@ -180,6 +180,98 @@ impl Client {
         let encrypted_r = agent_public_key.encrypt(&mut csprng, padding, &r_bytes).unwrap();
 
         (encrypted_att, encrypted_r)
+    }
+
+    pub fn enroll_no_idm(&self) -> ((i32, (RistrettoPoint, RistrettoPoint)), (Scalar, RistrettoPoint, (Scalar, Scalar))) {
+        let mut csprng = OsRng;
+        let rho1 = Scalar::random(&mut csprng);
+        let rho2 = Scalar::random(&mut csprng);
+
+        let params = Params::new(65536, 3, 4, Some(32)).unwrap();
+        let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+
+        let mut salt = [0u8; 16];
+        salt[..4].copy_from_slice(&self.id.to_le_bytes());
+
+        let mut seed = [0u8; 32];
+        argon2.hash_password_into(self.password.as_bytes(), &salt, &mut seed).unwrap();
+
+        let (sk_id, pk_id) = schnorr_keygen(seed);
+        let com_id = commit_pk(pk_id, rho1, rho2, &self.public_params);
+
+        let contract = (self.id, com_id);
+        let secret_state = (sk_id, pk_id, (rho1, rho2));
+        (contract, secret_state)
+    }
+
+    pub fn enroll_no_idm_sha256(&self) -> ((i32, (RistrettoPoint, RistrettoPoint)), (Scalar, RistrettoPoint, (Scalar, Scalar))) {
+        let mut csprng = OsRng;
+        let rho1 = Scalar::random(&mut csprng);
+        let rho2 = Scalar::random(&mut csprng);
+
+        let mut hasher = Sha256::new();
+        hasher.update(self.password.as_bytes());
+        let seed_hash = hasher.finalize();
+        let seed: [u8; 32] = seed_hash.as_slice().try_into().unwrap();
+
+        let (sk_id, pk_id) = schnorr_keygen(seed);
+        let com_id = commit_pk(pk_id, rho1, rho2, &self.public_params);
+
+        let contract = (self.id, com_id);
+        let secret_state = (sk_id, pk_id, (rho1, rho2));
+        (contract, secret_state)
+    }
+
+    pub fn enroll_no_idm_nohash(&self) -> ((i32, (RistrettoPoint, RistrettoPoint)), (Scalar, RistrettoPoint, (Scalar, Scalar))) {
+        let mut csprng = OsRng;
+        let rho1 = Scalar::random(&mut csprng);
+        let rho2 = Scalar::random(&mut csprng);
+
+        let mut seed = [0u8; 32];
+        let password_bytes = self.password.as_bytes();
+        let copy_len = password_bytes.len().min(32);
+        seed[..copy_len].copy_from_slice(&password_bytes[..copy_len]);
+
+        let (sk_id, pk_id) = schnorr_keygen(seed);
+        let com_id = commit_pk(pk_id, rho1, rho2, &self.public_params);
+
+        let contract = (self.id, com_id);
+        let secret_state = (sk_id, pk_id, (rho1, rho2));
+        (contract, secret_state)
+    }
+
+    pub fn launch_no_idm(&self, att: &str) -> (RistrettoPoint, Scalar) {
+        let params = Params::new(65536, 3, 4, Some(32)).unwrap();
+        let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+
+        let mut salt = [0u8; 16];
+        salt[..4].copy_from_slice(&self.id.to_le_bytes());
+
+        let mut seed = [0u8; 32];
+        argon2.hash_password_into(self.password.as_bytes(), &salt, &mut seed).unwrap();
+
+        let (sk_id, _pk_id) = schnorr_keygen(seed);
+        schnorr_sign(sk_id, att.as_bytes())
+    }
+
+    pub fn launch_no_idm_sha256(&self, att: &str) -> (RistrettoPoint, Scalar) {
+        let mut hasher = Sha256::new();
+        hasher.update(self.password.as_bytes());
+        let seed_hash = hasher.finalize();
+        let seed: [u8; 32] = seed_hash.as_slice().try_into().unwrap();
+
+        let (sk_id, _pk_id) = schnorr_keygen(seed);
+        schnorr_sign(sk_id, att.as_bytes())
+    }
+
+    pub fn launch_no_idm_nohash(&self, att: &str) -> (RistrettoPoint, Scalar) {
+        let mut seed = [0u8; 32];
+        let password_bytes = self.password.as_bytes();
+        let copy_len = password_bytes.len().min(32);
+        seed[..copy_len].copy_from_slice(&password_bytes[..copy_len]);
+
+        let (sk_id, _pk_id) = schnorr_keygen(seed);
+        schnorr_sign(sk_id, att.as_bytes())
     }
 
 }
