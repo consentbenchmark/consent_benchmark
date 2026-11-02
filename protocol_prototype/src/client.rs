@@ -1,10 +1,11 @@
-use curve25519_dalek::{ristretto::RistrettoBasepointTable, scalar::Scalar, RistrettoPoint};
+use curve25519_dalek::{scalar::Scalar, RistrettoPoint};
 use rand_core::OsRng;
-use hex;
+
 use sha2::{Digest, Sha256};
 use argon2::{Argon2, Algorithm, Version, Params};
-use rsa::{RsaPublicKey, Oaep};
+use rsa::RsaPublicKey;
 use crate::utils::{PublicParams, commit, hash_to_scalar, schnorr_keygen, schnorr_sign, commit_pk};
+use crate::dkim::encrypt_order;
 
 pub struct Client {
     login: String,
@@ -103,30 +104,12 @@ impl Client {
         (com, r)
     }
 
-    // Launch with RSA-OAEP encryption (DKIM variant)
-    pub fn launch_dkim(&self, att: String, agent_public_key: &RsaPublicKey) -> (Vec<u8>, Vec<u8>) {
-        let mut csprng = OsRng;
-        let r = Scalar::random(&mut csprng);
-
-        let params = Params::new(65536, 3, 4, Some(32)).unwrap();
-        let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-        let mut salt = [0u8; 16];
-        salt[..4].copy_from_slice(&self.id.to_le_bytes());
-        let mut h_id_bytes = [0u8; 32];
-        argon2.hash_password_into(self.password.as_bytes(), &salt, &mut h_id_bytes).unwrap();
-
-        let h_id = Scalar::from_bytes_mod_order(h_id_bytes);
-        let com = commit(h_id, hash_to_scalar(att.clone()), r, self.public_params.clone());
-
-        let padding = Oaep::new::<sha2::Sha256>();
-        let att_bytes = att.as_bytes();
-        let encrypted_att = agent_public_key.encrypt(&mut csprng, padding, att_bytes).unwrap();
-
-        let padding = Oaep::new::<sha2::Sha256>();
-        let r_bytes = r.to_bytes();
-        let encrypted_r = agent_public_key.encrypt(&mut csprng, padding, &r_bytes).unwrap();
-
-        (encrypted_att, encrypted_r)
+    // Launch for the DKIM variant: com plus RSA-OAEP encryption of (ref, att, r) for the Agent
+    pub fn launch_dkim(&self, att: String, agent_public_key: &RsaPublicKey) -> (RistrettoPoint, Vec<u8>) {
+        let (com, r) = self.launch(att.clone());
+        let reference = self.id.to_le_bytes().repeat(4);
+        let ciphertext = encrypt_order(agent_public_key, &reference, &att, r);
+        (com, ciphertext)
     }
 
     // Enrollment with SHA256 instead of Argon2
@@ -160,26 +143,11 @@ impl Client {
     }
 
     // Launch DKIM variant with SHA256 instead of Argon2
-    pub fn launch_dkim_sha256(&self, att: String, agent_public_key: &RsaPublicKey) -> (Vec<u8>, Vec<u8>) {
-        let mut csprng = OsRng;
-        let r = Scalar::random(&mut csprng);
-
-        let mut hasher = Sha256::new();
-        hasher.update(self.password.as_bytes());
-        let h_id_hash = hasher.finalize();
-
-        let h_id = Scalar::from_bytes_mod_order(h_id_hash.as_slice().try_into().unwrap());
-        let com = commit(h_id, hash_to_scalar(att.clone()), r, self.public_params.clone());
-
-        let padding = Oaep::new::<sha2::Sha256>();
-        let att_bytes = att.as_bytes();
-        let encrypted_att = agent_public_key.encrypt(&mut csprng, padding, att_bytes).unwrap();
-
-        let padding = Oaep::new::<sha2::Sha256>();
-        let r_bytes = r.to_bytes();
-        let encrypted_r = agent_public_key.encrypt(&mut csprng, padding, &r_bytes).unwrap();
-
-        (encrypted_att, encrypted_r)
+    pub fn launch_dkim_sha256(&self, att: String, agent_public_key: &RsaPublicKey) -> (RistrettoPoint, Vec<u8>) {
+        let (com, r) = self.launch_sha256(att.clone());
+        let reference = self.id.to_le_bytes().repeat(4);
+        let ciphertext = encrypt_order(agent_public_key, &reference, &att, r);
+        (com, ciphertext)
     }
 
     pub fn enroll_no_idm(&self) -> ((i32, (RistrettoPoint, RistrettoPoint)), (Scalar, RistrettoPoint, (Scalar, Scalar))) {

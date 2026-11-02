@@ -1,5 +1,11 @@
 pub mod client;
-pub mod idm;
 pub mod agent;
-pub mod benchmark;
 pub mod utils;
+pub mod consent;
+pub mod jws;
+pub mod oidc;
+pub mod dkim;
+pub mod ctap;
+pub mod oid4vp;
+
+pub mod benchmark;
